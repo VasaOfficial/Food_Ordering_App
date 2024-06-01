@@ -1,5 +1,5 @@
-import express, { Request, Response, NextFunction } from 'express'
-import { Food, FoodDoc, Vendor } from '../models'
+import { Request, Response, NextFunction } from 'express'
+import { FoodDoc, Vendor } from '../models'
 
 export const GetFoodAvailability = async (req: Request, res: Response, next: NextFunction) => {
   const pincode = req.params.pincode
