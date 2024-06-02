@@ -1,4 +1,4 @@
-import { IsEmail, Length, isEmail } from 'class-validator'
+import { IsEmail, Length } from 'class-validator'
 
 export class CreateCustomerInputs {
   @IsEmail()
