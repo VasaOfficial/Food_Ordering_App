@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express'
 import { validate } from 'class-validator'
 import { plainToClass } from 'class-transformer'
-import { CreateCustomerInputs, UserLoginInputs, EditCustomerProfileInputs } from '../dto/Customer.dto'
+import { CreateCustomerInputs, UserLoginInputs, EditCustomerProfileInputs, OrderInputs } from '../dto/Customer.dto'
 import { GenerateOtp, onRequestOtp } from '../utils/NotificationUtil'
 import { GeneratePassword, GenerateSalt, GenerateSignature, ValidatePassword } from '../utils/PasswordUtil'
-import { Customer } from '../models'
+import { Customer, Food, Order } from '../models'
 
 export const CustomerSignup = async (req: Request, res: Response, next: NextFunction) => {
   const customerInputs = plainToClass(CreateCustomerInputs, req.body)
@@ -40,7 +40,8 @@ export const CustomerSignup = async (req: Request, res: Response, next: NextFunc
     address: '',
     verified: false,
     lat: 0,
-    lng: 0
+    lng: 0,
+    orders: []
   })
 
   if(result) {
@@ -183,5 +184,82 @@ export const EditCustomerProfile = async (req: Request, res: Response, next: Nex
 
       res.status(200).json(result)
     }
+  }
+}
+
+export const CreateOrder = async (req: Request, res: Response, next: NextFunction) => {
+  // grab current login customer
+
+  const customer = req.user
+
+  if(customer) {
+    // create order ID
+    const orderId = `${Math.floor(Math.random() * 89999) + 1000}`
+
+    const profile = await Customer.findById(customer._id)
+
+    // grab order items from request [{productId, quantity}]
+    const cart = <[OrderInputs]>req.body
+
+    let cartItems = Array()
+
+    let netAmount = 0.0
+  
+    // calculate order amount
+    const foods = await Food.find().where('_id').in(cart.map(item => item._id)).exec()
+
+    foods.map((food) => {
+      cart.map(({ _id, unit }) => {
+        if(food._id === _id) {
+          netAmount += (food.price * unit)
+          cartItems.push({ food, unit })
+        }  
+      })
+    })
+  
+    // create order with item description
+    if(cartItems) {
+      const currentOrder = await Order.create({
+        orderId: orderId,
+        items: cartItems,
+        totalAmount: netAmount,
+        orderDate: new Date(),
+        paidThrough: 'COD',
+        paymentResponse: '',
+        orderStatus: 'Waiting'
+      })
+
+      if(currentOrder) {
+        profile.orders.push(currentOrder)
+        await profile.save()
+        
+        return res.status(200).json(currentOrder)
+
+      }
+    }
+  }
+
+  return res.status(400).json({ message: 'Error creating order' })
+}
+
+export const GetOrders = async (req: Request, res: Response, next: NextFunction) => {
+  const customer = req.user
+
+  if(customer) {
+    const profile = await Customer.findById(customer._id).populate('orders')
+
+    if(profile) {
+      return res.status(200).json(profile.orders)
+    }
+  }
+}
+
+export const GetOrderById = async (req: Request, res: Response, next: NextFunction) => {
+  const orderId = req.params.id
+
+  if(orderId) {
+    const order = (await Order.findById(orderId)).populate('items.food')
+
+    res.status(200).json(order)
   }
 }
