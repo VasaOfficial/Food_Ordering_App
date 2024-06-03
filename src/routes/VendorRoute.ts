@@ -1,5 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express'
-import { GetVendorProfile, UpdateVendorProfile, VendorLogin, UpdateVendorService, AddFood, GetFood, UpdateVendorCoverImage } from '../controllers'
+import { GetVendorProfile, UpdateVendorProfile, VendorLogin, UpdateVendorService, AddFood, GetFood, UpdateVendorCoverImage, ProcessOrder, GetOrderDetails, GetCurrentOrders } from '../controllers'
 import { Authenticate } from '../middlewares'
 import multer from 'multer'
 
@@ -26,6 +26,11 @@ router.patch('/service', UpdateVendorService)
 
 router.post('/food', images, AddFood)
 router.get('/foods', GetFood)
+
+// orders
+router.get('/orders', GetCurrentOrders)
+router.get('/order/:id/process', ProcessOrder)
+router.get('/order/:id', GetOrderDetails)
 
 router.get('/', (req: Request, res: Response, next: NextFunction) => {
   res.json({ message: 'hello from Vendor'})
