@@ -1,43 +1,37 @@
-import mongoose, { Schema, Document } from "mongoose";
+import mongoose, { Schema, Document } from 'mongoose';
 
 export interface OrderDoc extends Document {
-  orderID: string;
+  orderId: string;
   vendorId: string;
-  items: [any]
+  items: [any];
   totalAmount: number;
+  paidAmount: number;
   orderDate: Date;
-  paidThrough: string;
-  paymentResponse: string;
   orderStatus: string;
   remarks: string;
   deliveryId: string;
-  appliedOffers: boolean;
-  offerId: string;
   readyTime: number;
 }
 
 const OrderSchema = new Schema({
-  orderID: { type: String, required: true },
-  vendorId: { type: String, required : true },
+  orderId: {type: String, require: true},
+  vendorId: {type: String, require: true},
   items: [
     {
-      food: { type: Schema.Types.ObjectId, ref: 'food', required: true },
-      unit: { type: Number, required: true }
+      food: {type: Schema.Types.ObjectId, ref: "food", require: true},
+      unit: { type: Number, require: true}
     }
   ],
-  totalAmount: { type: Number, required: true },
-  orderDate: { type: Date},
-  paidThrough: { type: String},
-  paymentResponse: { type: String },
-  orderStatus: { type: String },
-  remarks: { type: String },
-  deliveryId: { type: String },
-  appliedOffers: { type: Boolean},
-  offerId: { type: String },
-  readyTime: { type: Number },
-}, {
+  totalAmount: {type: Number, require: true},
+  paidAmount: {type: Number, require: true},
+  orderDate: {type: Date },
+  orderStatus: {type: String},
+  remarks: {type: String},
+  deliveryId: {type: String},
+  readyTime:{type: Number},
+},{
   toJSON: {
-    transform(doc, ret) {
+    transform(doc, ret){
       delete ret.__v;
       delete ret.createdAt;
       delete ret.updatedAt;
@@ -47,5 +41,4 @@ const OrderSchema = new Schema({
 });
 
 const Order = mongoose.model<OrderDoc>('order', OrderSchema);
-
 export { Order }

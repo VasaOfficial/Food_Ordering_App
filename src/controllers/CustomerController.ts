@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express'
 import { validate } from 'class-validator'
 import { plainToClass } from 'class-transformer'
-import { CreateCustomerInputs, UserLoginInputs, EditCustomerProfileInputs, OrderInputs } from '../dto/Customer.dto'
+import { CreateCustomerInputs, UserLoginInputs, EditCustomerProfileInputs, OrderInputs, CartItem } from '../dto/Customer.dto'
 import { GenerateOtp, onRequestOtp } from '../utils/NotificationUtil'
 import { GeneratePassword, GenerateSalt, GenerateSignature, ValidatePassword } from '../utils/PasswordUtil'
-import { Customer, Food, Order } from '../models'
+import { Customer, Food, Order, Offer, Transaction, Vendor, DeliveryUser } from '../models'
 
 export const CustomerSignup = async (req: Request, res: Response, next: NextFunction) => {
   const customerInputs = plainToClass(CreateCustomerInputs, req.body)
@@ -196,7 +196,7 @@ export const AddToCart = async (req: Request, res: Response, next: NextFunction)
     const profile = await Customer.findById(customer._id)
     let cartItems = Array()
     
-    const { _id, unit } = <OrderInputs>req.body
+    const { _id, unit } = <CartItem>req.body
 
     const food = await Food.findById(_id)
 
@@ -265,68 +265,160 @@ export const DeleteCart = async (req: Request, res: Response, next: NextFunction
   }
 }
 
+export const VerifyOffer = async (req: Request, res: Response, next: NextFunction) => {
+
+  const offerId = req.params.id;
+  const customer = req.user;
+  
+  if(customer){
+
+      const appliedOffer = await Offer.findById(offerId);
+      
+      if(appliedOffer){
+          if(appliedOffer.isActive){
+              return res.status(200).json({ message: 'Offer is Valid', offer: appliedOffer});
+          }
+      }
+
+  }
+
+  return res.status(400).json({ msg: 'Offer is Not Valid'});
+}
+
+//**  Create Payment  */
+export const CreatePayment = async (req: Request, res: Response, next: NextFunction) => {
+
+  const customer = req.user;
+
+  const { amount, paymentMode, offerId} = req.body;
+
+  let payableAmount = Number(amount);
+
+  if(offerId){
+
+      const appliedOffer = await Offer.findById(offerId);
+
+      if(appliedOffer.isActive){
+          payableAmount = (payableAmount - appliedOffer.offerAmount);
+      }
+  }
+
+  // create record on transaction
+  const transaction = await Transaction.create({
+      customer: customer._id,
+      vendorId: '',
+      orderId: '',
+      orderValue: payableAmount,
+      offerUsed: offerId || 'NA',
+      status: 'OPEN',
+      paymentMode: paymentMode,
+      paymentResponse: 'Payment is cash on Delivery'
+  })
+
+  return res.status(200).json(transaction);
+}
+
+//**  Delivery Notification */
+const assignOrderForDelivery = async (orderId: string, vendorId: string) => {
+  const vendor = await Vendor.findById(vendorId);
+
+  if(vendor){
+    const areaCode = vendor.pincode
+    const vendorLat = vendor.lat
+    const vendorLng = vendor.lng
+
+    const deliveryPerson = await DeliveryUser.find({ pincode: areaCode, verified: true, isAvailable: true});
+
+    if(deliveryPerson){
+      // Check the nearest delivery person and assign the order
+      const currentOrder = await Order.findById(orderId);
+
+      if(currentOrder){
+        //update Delivery ID
+        currentOrder.deliveryId = deliveryPerson[0]._id.toString();
+        await currentOrder.save();
+      }
+    }
+  }
+}
+
 //**  Order Section */
+const validateTransaction = async(txnId: string) => {
+    
+  const currentTransaction = await Transaction.findById(txnId);
+
+  if(currentTransaction){
+      if(currentTransaction.status.toLowerCase() !== 'failed'){
+          return {status: true, currentTransaction};
+      }
+  }
+  return {status: false, currentTransaction};
+}
 
 export const CreateOrder = async (req: Request, res: Response, next: NextFunction) => {
-  // grab current login customer
+  const customer = req.user;
+  const { txnId, amount, items } = <OrderInputs>req.body;
 
-  const customer = req.user
+  if(customer){
+    const { status, currentTransaction } =  await validateTransaction(txnId);
 
-  if(customer) {
-    // create order ID
-    const orderId = `${Math.floor(Math.random() * 89999) + 1000}`
+    if(!status){
+        return res.status(404).json({ message: 'Error while Creating Order!'})
+    }
 
-    const profile = await Customer.findById(customer._id)
+    const profile = await Customer.findById(customer._id);
 
-    // grab order items from request [{productId, quantity}]
-    const cart = <[OrderInputs]>req.body
+    const orderId = `${Math.floor(Math.random() * 89999 + 1000)}`;
 
-    let cartItems = Array()
-    let netAmount = 0.0
+    let cartItems = Array();
+    let netAmount = 0.0;
+    let vendorId;
 
-    let vendorId
-  
-    // calculate order amount
-    const foods = await Food.find().where('_id').in(cart.map(item => item._id)).exec()
+    const foods = await Food.find().where('_id').in(items.map(item => item._id)).exec();
 
-    foods.map((food) => {
-      cart.map(({ _id, unit }) => {
-        if(food._id === _id) {
-          vendorId = food.vendorId
-          netAmount += (food.price * unit)
-          cartItems.push({ food, unit })
-        }  
+    foods.map(food => {
+      items.map(({ _id, unit}) => {
+        if(food._id == _id){
+          vendorId = food.vendorId;
+          netAmount += food.price * unit;
+          cartItems.push({ food, unit: unit})
+        }
       })
     })
-  
-    // create order with item description
-    if(cartItems) {
+
+    if(cartItems){
       const currentOrder = await Order.create({
-        orderId: orderId,
+        orderID: orderId,
         vendorId: vendorId,
         items: cartItems,
         totalAmount: netAmount,
+        paidAmount: amount,
         orderDate: new Date(),
-        paidThrough: 'COD',
-        paymentResponse: '',
         orderStatus: 'Waiting',
         remarks: '',
         deliveryId: '',
-        appliedOffers: false,
-        offerId: null,
         readyTime: 45
       })
 
-      profile.cart = [] as any
-      profile.orders.push(currentOrder)
+      profile.cart = [] as any;
+      profile.orders.push(currentOrder);
 
-      const profileSaveResponse = await profile.save()
+
+      currentTransaction.vendorId = vendorId;
+      currentTransaction.orderId = orderId;
+      currentTransaction.status = 'CONFIRMED'
       
-      return res.status(200).json(profileSaveResponse)
+      await currentTransaction.save();
+
+      assignOrderForDelivery(currentOrder._id.toString(), vendorId);
+
+      const profileSaveResponse =  await profile.save();
+
+      res.status(200).json(profileSaveResponse);
+    }else {
+      res.status(400).json({ message: 'Error while Creating Order!'})
     }
   }
-
-  return res.status(400).json({ message: 'Error creating order' })
 }
 
 export const GetOrders = async (req: Request, res: Response, next: NextFunction) => {
